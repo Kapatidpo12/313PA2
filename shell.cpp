@@ -5,6 +5,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <time.h>
+#include <unistd.h>
+
 #include <vector>
 #include <string>
 
@@ -20,13 +23,34 @@
 
 using namespace std;
 
+string getPrompt() {
+    time_t timer;
+    string timeString;
+    timer = time(NULL);
+    timeString = ctime(&timer);
+
+    timeString = timeString.substr(4, 15);
+
+    string user = getenv("USER");
+
+    char cwd[1024];
+    if (getcwd(cwd, sizeof(cwd)) == NULL) {
+        perror("getcwd error: ");
+    }
+
+    string cwdString = string(cwd);
+
+    return timeString + " " + user + ":" + cwdString + "$";
+
+}
+
 int main () {
 
     vector<int> backPIDS = vector<int>();
 
     for (;;) {
         // need date/time, username, and absolute path to current dir
-        cout << YELLOW << "Shell$" << NC << " ";
+        cout << YELLOW << getPrompt() << NC << " ";
         
         // get user inputted command
         string input;
@@ -90,6 +114,9 @@ int main () {
                 perror("Pipe creation failed");
                 exit(2);
             }
+
+            // handle cd command
+            
 
             // fork to create child
             pid_t pid = fork();
