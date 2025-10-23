@@ -55,66 +55,109 @@ int main () {
         //     cerr << endl;
         // }
 
-        // fork to create child
-        pid_t pid = fork();
-        if (pid < 0) {  // error check
-            perror("fork");
-            exit(2);
-        }
 
-        if (pid == 0) {  // if child, exec to run command
-            // run single commands with no arguments
-            // char* args[] = {(char*) tknr.commands.at(0)->args.at(0).c_str(), nullptr};
+        // loop through each command in the pipe
 
-            // create args array from command
-            Command* currentCmnd = tknr.commands.at(0);
-            int numArgs = currentCmnd->args.size();
-            char** args = new char*[numArgs + 1];
+        int numCmnds = tknr.commands.size();
+        int savedStdin = dup(STDIN_FILENO);
+        int savedStdout = dup(STDOUT_FILENO);
 
-            for (int i = 0; i < numArgs; i++) {
-                args[i] = (char*) currentCmnd->args.at(i).c_str();
-            }
+        for (int current = 0; current < numCmnds; current++) {
 
-            args[numArgs] = nullptr;
 
-            
-            // check if file descriptors need to be changed
-
-            if (currentCmnd->in_file != "") {
-                int fd = open(currentCmnd->in_file.c_str(), O_RDONLY, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-
-                if (fd < 0) {
-                    perror("Failed to open input file:");
-                }
-
-                dup2(fd, 0);
-                close(fd);
-            }
-            if (currentCmnd->out_file != "") {
-                int fd = open(currentCmnd->out_file.c_str(), O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-                
-                if (fd < 0) {
-                    perror("Failed to open output file:");
-                }
-                
-                dup2(fd, 1);
-                close(fd);
-            }
-
-            if (execvp(args[0], args) < 0) {  // error check
-                perror("execvp");
+            // create pipe 
+            int pipeFds[2];
+            if (pipe(pipeFds) == -1) {
+                perror("Pipe creation failed");
                 exit(2);
             }
 
-        } // end pid==0 block
-
-        
-        else {  // if parent, wait for child to finish
-            int status = 0;
-            waitpid(pid, &status, 0);
-            if (status > 1) {  // exit if child didn't exec properly
-                exit(status);
+            // fork to create child
+            pid_t pid = fork();
+            if (pid < 0) {  // error check
+                perror("fork");
+                exit(2);
             }
-        }
+
+            if (pid == 0) {  // child
+
+                // hook to pipe or terminal
+                
+                close(pipeFds[0]); // closing read end
+
+                if (current == numCmnds - 1) {
+                    dup2(savedStdout, STDOUT_FILENO);
+                }
+                else {
+                    dup2(pipeFds[1], STDOUT_FILENO);
+                }
+                close(pipeFds[1]); // closing duplicated fd
+
+                // create args array from command
+                Command* currentCmnd = tknr.commands.at(current);
+                int numArgs = currentCmnd->args.size();
+                char** args = new char*[numArgs + 1];
+
+                for (int i = 0; i < numArgs; i++) {
+                    args[i] = (char*) currentCmnd->args.at(i).c_str();
+                }
+
+                args[numArgs] = nullptr;
+
+                
+                // check if file descriptors need to be changed
+
+                if (currentCmnd->in_file != "") {
+                    int fd = open(currentCmnd->in_file.c_str(), O_RDONLY, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+
+                    if (fd < 0) {
+                        perror("Failed to open input file:");
+                    }
+
+                    dup2(fd, 0);
+                    close(fd);
+                }
+                if (currentCmnd->out_file != "") {
+                    int fd = open(currentCmnd->out_file.c_str(), O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+                    
+                    if (fd < 0) {
+                        perror("Failed to open output file:");
+                    }
+                    
+                    dup2(fd, 1);
+                    close(fd);
+                }
+
+                if (execvp(args[0], args) < 0) {  // error check
+                    perror("execvp");
+                    exit(2);
+                }
+
+            } // end pid==0 block
+
+
+            else {  // if parent, wait for child to finish
+
+                
+                close(pipeFds[1]); // closing write end of pipe
+                dup2(pipeFds[0], STDIN_FILENO);
+                close(pipeFds[0]); // closing duplicated read end
+
+                if (current == numCmnds - 1) {
+                    
+                    // restore origina stdin
+                    dup2(savedStdin, STDIN_FILENO);
+
+                    int status = 0;
+                    waitpid(pid, &status, 0);
+                    if (status > 1) {  // exit if child didn't exec properly
+                        exit(status);
+                    }
+
+                }
+
+            }
+
+        } // end commands loop
     }
 }
