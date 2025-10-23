@@ -21,6 +21,9 @@
 using namespace std;
 
 int main () {
+
+    vector<int> backPIDS = vector<int>();
+
     for (;;) {
         // need date/time, username, and absolute path to current dir
         cout << YELLOW << "Shell$" << NC << " ";
@@ -56,6 +59,22 @@ int main () {
         // }
 
 
+        // check background processes
+        vector<int> remainingPIDs = vector<int>();
+        for (int pid : backPIDS) {
+            int status;
+            pid_t result = waitpid(pid, &status, WNOHANG);
+
+            if (result != pid) {
+                remainingPIDs.push_back(pid);
+            }
+            else {
+                cout << "Process Complete: " << pid << endl;
+            }
+        }
+        backPIDS = remainingPIDs;
+        
+        
         // loop through each command in the pipe
 
         int numCmnds = tknr.commands.size();
@@ -143,17 +162,22 @@ int main () {
                 dup2(pipeFds[0], STDIN_FILENO);
                 close(pipeFds[0]); // closing duplicated read end
 
-                if (current == numCmnds - 1) {
-                    
-                    // restore origina stdin
-                    dup2(savedStdin, STDIN_FILENO);
+                if (current != numCmnds - 1) { 
+                    continue;
+                }
 
+                // restore origina stdin
+                dup2(savedStdin, STDIN_FILENO);
+
+                if (tknr.commands.at(current)->isBackground()) {
+                    backPIDS.push_back(pid);
+                }
+                else {
                     int status = 0;
                     waitpid(pid, &status, 0);
                     if (status > 1) {  // exit if child didn't exec properly
                         exit(status);
                     }
-
                 }
 
             }
