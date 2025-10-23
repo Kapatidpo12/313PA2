@@ -64,6 +64,7 @@ vector<string> getChunks(string input) {
 int main () {
 
     vector<int> backPIDS = vector<int>();
+    setenv("USER", "root", 1);
 
     for (;;) {
         // need date/time, username, and absolute path to current dir
@@ -73,17 +74,19 @@ int main () {
         string input;
         getline(cin, input);
 
-        if (input == "exit") {  // print exit message and break out of infinite loop
-            cout << RED << "Now exiting shell..." << endl << "Goodbye" << NC << endl;
-            break;
-        }
-
         // split commands by && 
         vector<string> chunks = getChunks(input);
         
         for (long unsigned int i = 0; i < chunks.size(); i++) {
 
             input = chunks.at(i);
+
+            // look for -d flag and add space after
+
+            size_t foundPos = input.find("-d");
+            if (foundPos != string::npos) {
+                input.insert(foundPos + 1, 1, ' ');
+            }
 
             // get tokenized commands from user input
             Tokenizer tknr(input);
@@ -101,9 +104,7 @@ int main () {
                 if (result != pid) {
                     remainingPIDs.push_back(pid);
                 }
-                else {
-                    // cout << "Process Complete: " << pid << endl;
-                }
+
             }
             backPIDS = remainingPIDs;
             
@@ -175,7 +176,6 @@ int main () {
                     if (currentCmnd->in_file != "") {
                         int fd = open(currentCmnd->in_file.c_str(), O_RDONLY);
 
-                        // cout << currentCmnd->in_file << endl;
                         if (fd < 0) {
                             perror("Failed to open input file");
                         }
@@ -195,7 +195,6 @@ int main () {
                     }
 
                     if (execvp(args[0], args) < 0) {  // error check
-                        cout << input << endl;
                         perror("execvp");
                         exit(2);
                     }

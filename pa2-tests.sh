@@ -151,7 +151,7 @@ echo "[Test 6] multiple pipes + I/O redirection"
 
   # ---- Step 2 ----
   # Use cut instead of awk to avoid quoting issues
-  CMD2="cut -d ' ' -f1,11 test.txt > tmp1.txt && exit"
+  CMD2="cut -d' ' -f1,11 test.txt > tmp1.txt && exit"
   # echo ">>> Running: $CMD2"
   ./shell <<< "$CMD2" 2>&1 | head -n 10
   if [[ ! -s tmp1.txt ]]; then
