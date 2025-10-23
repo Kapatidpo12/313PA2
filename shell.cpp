@@ -10,6 +10,7 @@
 
 #include <vector>
 #include <string>
+#include <string_view>
 
 #include "Tokenizer.h"
 
@@ -44,6 +45,21 @@ string getPrompt() {
 
 }
 
+vector<string> getChunks(string input) {
+    vector<string> chunks = vector<string>();
+    size_t pos = 0;
+    string chunk;
+    string delimiter = "&&";
+    while ((pos = input.find(delimiter)) != string::npos) {
+        chunk = input.substr(0, pos);
+        chunks.push_back(chunk);
+        input.erase(0, pos + delimiter.length());
+    }
+    chunks.push_back(input);
+
+    return chunks;
+}
+
 int main () {
 
     vector<int> backPIDS = vector<int>();
@@ -61,154 +77,161 @@ int main () {
             break;
         }
 
-        // get tokenized commands from user input
-        Tokenizer tknr(input);
-        if (tknr.hasError()) {  // continue to next prompt if input had an error
-            continue;
-        }
-
-        // // print out every command token-by-token on individual lines
-        // // prints to cerr to avoid influencing autograder
-        // for (auto cmd : tknr.commands) {
-        //     for (auto str : cmd->args) {
-        //         cerr << "|" << str << "| ";
-        //     }
-        //     if (cmd->hasInput()) {
-        //         cerr << "in< " << cmd->in_file << " ";
-        //     }
-        //     if (cmd->hasOutput()) {
-        //         cerr << "out> " << cmd->out_file << " ";
-        //     }
-        //     cerr << endl;
-        // }
-
-
-        // check background processes
-        vector<int> remainingPIDs = vector<int>();
-        for (int pid : backPIDS) {
-            int status;
-            pid_t result = waitpid(pid, &status, WNOHANG);
-
-            if (result != pid) {
-                remainingPIDs.push_back(pid);
-            }
-            else {
-                cout << "Process Complete: " << pid << endl;
-            }
-        }
-        backPIDS = remainingPIDs;
+        // split commands by && 
+        vector<string> chunks = getChunks(input);
         
-        
-        // loop through each command in the pipe
+        for (long unsigned int i = 0; i < chunks.size(); i++) {
 
-        int numCmnds = tknr.commands.size();
-        int savedStdin = dup(STDIN_FILENO);
-        int savedStdout = dup(STDOUT_FILENO);
+            input = chunks.at(i);
 
-        for (int current = 0; current < numCmnds; current++) {
-
-
-            // create pipe 
-            int pipeFds[2];
-            if (pipe(pipeFds) == -1) {
-                perror("Pipe creation failed");
-                exit(2);
+            // get tokenized commands from user input
+            Tokenizer tknr(input);
+            if (tknr.hasError()) {  // continue to next prompt if input had an error
+                continue;
             }
 
-            // handle cd command
-            
 
-            // fork to create child
-            pid_t pid = fork();
-            if (pid < 0) {  // error check
-                perror("fork");
-                exit(2);
-            }
+            // check background processes
+            vector<int> remainingPIDs = vector<int>();
+            for (int pid : backPIDS) {
+                int status;
+                pid_t result = waitpid(pid, &status, WNOHANG);
 
-            if (pid == 0) {  // child
-
-                // hook to pipe or terminal
-                
-                close(pipeFds[0]); // closing read end
-
-                if (current == numCmnds - 1) {
-                    dup2(savedStdout, STDOUT_FILENO);
+                if (result != pid) {
+                    remainingPIDs.push_back(pid);
                 }
                 else {
-                    dup2(pipeFds[1], STDOUT_FILENO);
+                    // cout << "Process Complete: " << pid << endl;
                 }
-                close(pipeFds[1]); // closing duplicated fd
+            }
+            backPIDS = remainingPIDs;
+            
+            
+            // loop through each command in the pipe
 
-                // create args array from command
+            int numCmnds = tknr.commands.size();
+            int savedStdin = dup(STDIN_FILENO);
+            int savedStdout = dup(STDOUT_FILENO);
+
+            // cout << "NumCmnds: " << numCmnds << endl;
+
+            for (int current = 0; current < numCmnds; current++) {
+
                 Command* currentCmnd = tknr.commands.at(current);
-                int numArgs = currentCmnd->args.size();
-                char** args = new char*[numArgs + 1];
 
-                for (int i = 0; i < numArgs; i++) {
-                    args[i] = (char*) currentCmnd->args.at(i).c_str();
-                }
-
-                args[numArgs] = nullptr;
-
-                
-                // check if file descriptors need to be changed
-
-                if (currentCmnd->in_file != "") {
-                    int fd = open(currentCmnd->in_file.c_str(), O_RDONLY, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-
-                    if (fd < 0) {
-                        perror("Failed to open input file:");
-                    }
-
-                    dup2(fd, 0);
-                    close(fd);
-                }
-                if (currentCmnd->out_file != "") {
-                    int fd = open(currentCmnd->out_file.c_str(), O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
-                    
-                    if (fd < 0) {
-                        perror("Failed to open output file:");
-                    }
-                    
-                    dup2(fd, 1);
-                    close(fd);
-                }
-
-                if (execvp(args[0], args) < 0) {  // error check
-                    perror("execvp");
+                // create pipe 
+                int pipeFds[2];
+                if (pipe(pipeFds) == -1) {
+                    perror("Pipe creation failed");
                     exit(2);
                 }
 
-            } // end pid==0 block
+                // handle exit commnad
+                if (currentCmnd->args.at(0) == "exit") {
+                    cout << RED << "Now exiting shell..." << endl << "Goodbye" << NC << endl;
+                    exit(0);
+                }
 
-
-            else {  // if parent, wait for child to finish
-
-                
-                close(pipeFds[1]); // closing write end of pipe
-                dup2(pipeFds[0], STDIN_FILENO);
-                close(pipeFds[0]); // closing duplicated read end
-
-                if (current != numCmnds - 1) { 
+                // handle cd command
+                if (currentCmnd->args.at(0) == "cd") {
+                    chdir((char*) currentCmnd->args.at(1).c_str());
                     continue;
                 }
 
-                // restore origina stdin
-                dup2(savedStdin, STDIN_FILENO);
-
-                if (tknr.commands.at(current)->isBackground()) {
-                    backPIDS.push_back(pid);
+                // fork to create child
+                pid_t pid = fork();
+                if (pid < 0) {  // error check
+                    perror("fork");
+                    exit(2);
                 }
-                else {
-                    int status = 0;
-                    waitpid(pid, &status, 0);
-                    if (status > 1) {  // exit if child didn't exec properly
-                        exit(status);
+
+                if (pid == 0) {  // child
+
+                    // hook to pipe or terminal
+                    
+                    close(pipeFds[0]); // closing read end
+
+                    if (current == numCmnds - 1) {
+                        dup2(savedStdout, STDOUT_FILENO);
                     }
+                    else {
+                        dup2(pipeFds[1], STDOUT_FILENO);
+                    }
+                    close(pipeFds[1]); // closing duplicated fd
+
+                    // create args array from command
+                    int numArgs = currentCmnd->args.size();
+                    char** args = new char*[numArgs + 1];
+
+                    for (int i = 0; i < numArgs; i++) {
+                        args[i] = (char*) currentCmnd->args.at(i).c_str();
+                    }
+
+                    args[numArgs] = nullptr;
+
+                    
+                    // check if file descriptors need to be changed
+
+                    if (currentCmnd->in_file != "") {
+                        int fd = open(currentCmnd->in_file.c_str(), O_RDONLY);
+
+                        // cout << currentCmnd->in_file << endl;
+                        if (fd < 0) {
+                            perror("Failed to open input file");
+                        }
+
+                        dup2(fd, 0);
+                        close(fd);
+                    }
+                    if (currentCmnd->out_file != "") {
+                        int fd = open(currentCmnd->out_file.c_str(), O_CREAT|O_WRONLY|O_TRUNC, S_IRUSR|S_IWUSR|S_IRGRP|S_IROTH);
+                        
+                        if (fd < 0) {
+                            perror("Failed to open output file:");
+                        }
+                        
+                        dup2(fd, 1);
+                        close(fd);
+                    }
+
+                    if (execvp(args[0], args) < 0) {  // error check
+                        cout << input << endl;
+                        perror("execvp");
+                        exit(2);
+                    }
+
+                } // end pid==0 block
+
+
+                else {  // if parent, wait for child to finish
+
+                    
+                    close(pipeFds[1]); // closing write end of pipe
+                    dup2(pipeFds[0], STDIN_FILENO);
+                    close(pipeFds[0]); // closing duplicated read end
+
+                    if (current != numCmnds - 1) { 
+                        continue;
+                    }
+
+                    // restore original stdin
+                    dup2(savedStdin, STDIN_FILENO);
+
+                    if (currentCmnd->isBackground()) {
+                        backPIDS.push_back(pid);
+                    }
+                    else {
+                        int status = 0;
+                        waitpid(pid, &status, 0);
+                        if (status > 1) {  // exit if child didn't exec properly
+                            exit(status);
+                        }
+                    }
+
                 }
 
-            }
+            } // end commands loop
 
-        } // end commands loop
+        } // end chunks loops
     }
 }
