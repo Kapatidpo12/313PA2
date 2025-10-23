@@ -32,7 +32,8 @@ string getPrompt() {
 
     timeString = timeString.substr(4, 15);
 
-    string user = getenv("USER");
+    const char* userEnv = getenv("USER");
+    string user = userEnv ? userEnv : "unknown";
 
     char cwd[1024];
     if (getcwd(cwd, sizeof(cwd)) == NULL) {
@@ -113,8 +114,6 @@ int main () {
             int savedStdin = dup(STDIN_FILENO);
             int savedStdout = dup(STDOUT_FILENO);
 
-            // cout << "NumCmnds: " << numCmnds << endl;
-
             for (int current = 0; current < numCmnds; current++) {
 
                 Command* currentCmnd = tknr.commands.at(current);
@@ -165,6 +164,7 @@ int main () {
 
                     for (int i = 0; i < numArgs; i++) {
                         args[i] = (char*) currentCmnd->args.at(i).c_str();
+                        cout << "args: " << args[i] << endl;
                     }
 
                     args[numArgs] = nullptr;
